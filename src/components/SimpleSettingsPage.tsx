@@ -43,6 +43,8 @@ export const SimpleSettingsPage: React.FC = () => {
     dune: 'not_set'
   });
 
+  const [firebaseUsage, setFirebaseUsage] = useState({ writes: 0, reads: 0 });
+
   // API設定状況をチェック & Firestoreからデータ読み込み
   useEffect(() => {
     const config = checkApiConfig();
@@ -65,6 +67,17 @@ export const SimpleSettingsPage: React.FC = () => {
     };
 
     loadTokens();
+
+    // Firebase使用量を定期更新
+    const updateUsage = () => {
+      const usage = FirestoreService.getDailyUsage();
+      setFirebaseUsage(usage);
+    };
+
+    updateUsage();
+    const usageInterval = setInterval(updateUsage, 10000); // 10秒ごと
+
+    return () => clearInterval(usageInterval);
   }, []);
 
   const handleAddToken = async () => {
@@ -642,7 +655,11 @@ export const SimpleSettingsPage: React.FC = () => {
         <div className="flex justify-between items-center mb-4">
           <div>
             <h2 className="text-lg font-medium text-gray-900">トークン設定</h2>
-            <p className="text-sm text-red-600 mt-1">TODO 1日あたりFirebase制限への対応。課金するか。＋トークン削除時にそれに紐づく購入者アドレスの削除など</p>
+            <p className="text-sm text-orange-600 mt-1">🔥 Firebase Blazeプラン推奨: 大量データの完全保存対応。月額コスト目安: $1-5</p>
+            <div className="mt-2 text-xs text-gray-600">
+              <span className="mr-4">📊 Firebase使用量: 書き込み {firebaseUsage.writes} | 読み取り {firebaseUsage.reads}</span>
+              <span className="text-blue-600">💡 Blazeプランなら制限なし</span>
+            </div>
           </div>
           <div className="flex space-x-3">
             {tokens.length > 0 && apiStatus.birdeye === 'success' && (
@@ -687,6 +704,21 @@ export const SimpleSettingsPage: React.FC = () => {
                     type="button"
                     onClick={() => {
                       const now = new Date();
+                      const start = new Date(now.getTime() - 6 * 60 * 60 * 1000);
+                      setFormData({
+                        ...formData,
+                        startTime: start.toISOString().slice(0, 16),
+                        endTime: now.toISOString().slice(0, 16)
+                      });
+                    }}
+                    className="px-2 py-1 text-xs bg-green-200 hover:bg-green-300 rounded mr-2"
+                  >
+                    過去6時間 (推奨)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const now = new Date();
                       const start = new Date(now.getTime() - 24 * 60 * 60 * 1000);
                       setFormData({
                         ...formData,
@@ -694,7 +726,7 @@ export const SimpleSettingsPage: React.FC = () => {
                         endTime: now.toISOString().slice(0, 16)
                       });
                     }}
-                    className="px-2 py-1 text-xs bg-gray-200 hover:bg-gray-300 rounded mr-2"
+                    className="px-2 py-1 text-xs bg-blue-200 hover:bg-blue-300 rounded mr-2"
                   >
                     過去24時間
                   </button>
@@ -702,16 +734,16 @@ export const SimpleSettingsPage: React.FC = () => {
                     type="button"
                     onClick={() => {
                       const now = new Date();
-                      const start = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+                      const start = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000);
                       setFormData({
                         ...formData,
                         startTime: start.toISOString().slice(0, 16),
                         endTime: now.toISOString().slice(0, 16)
                       });
                     }}
-                    className="px-2 py-1 text-xs bg-gray-200 hover:bg-gray-300 rounded mr-2"
+                    className="px-2 py-1 text-xs bg-yellow-200 hover:bg-yellow-300 rounded mr-2"
                   >
-                    過去7日間
+                    過去3日間 (自動短縮)
                   </button>
                   <button
                     type="button"

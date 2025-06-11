@@ -249,8 +249,22 @@ export class DuneAPI {
     const defaultStartTime = '2020-01-01 00:00:00';
     const defaultEndTime = '2030-12-31 23:59:59';
     
-    const formattedStartTime = startTime ? formatDateTime(startTime) : defaultStartTime;
+    let formattedStartTime = startTime ? formatDateTime(startTime) : defaultStartTime;
     const formattedEndTime = endTime ? formatDateTime(endTime) : defaultEndTime;
+    
+    // タイムアウト回避: 期間が長すぎる場合は短縮
+    if (startTime && endTime) {
+      const start = new Date(startTime);
+      const end = new Date(endTime);
+      const daysDiff = (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24);
+      
+      if (daysDiff > 3) {
+        // 3日以上の場合は最新24時間に短縮してタイムアウト回避
+        const newStart = new Date(end.getTime() - 24 * 60 * 60 * 1000);
+        formattedStartTime = formatDateTime(newStart.toISOString());
+        console.log(`⚠️ 期間が${daysDiff.toFixed(1)}日と長いため、タイムアウト回避のため最新24時間に短縮: ${formattedStartTime} ~ ${formattedEndTime}`);
+      }
+    }
     
     // 最終的なパラメータの長さチェック
     if (formattedStartTime.length !== 19) {

@@ -45,6 +45,39 @@ export interface FirebasePromisingAddress {
 
 export class FirestoreService {
   
+  // 日次使用量追跡（簡易版）
+  private static dailyUsage = {
+    date: new Date().toDateString(),
+    writes: 0,
+    reads: 0
+  };
+  
+  // 使用量をリセット（日付変更時）
+  private static checkDailyReset() {
+    const today = new Date().toDateString();
+    if (this.dailyUsage.date !== today) {
+      this.dailyUsage = { date: today, writes: 0, reads: 0 };
+      console.log('🔄 Firebase使用量カウンターをリセットしました');
+    }
+  }
+  
+  // 使用量を追跡
+  private static trackUsage(operation: 'read' | 'write', count: number = 1) {
+    this.checkDailyReset();
+    this.dailyUsage[operation === 'read' ? 'reads' : 'writes'] += count;
+    
+    const remaining = 20000 - this.dailyUsage.writes;
+    if (remaining < 1000) {
+      console.warn(`⚠️ Firebase書き込み制限接近: 残り${remaining}回`);
+    }
+  }
+  
+  // 使用量確認
+  static getDailyUsage() {
+    this.checkDailyReset();
+    return { ...this.dailyUsage };
+  }
+  
   // === トークン管理 ===
   
   // トークン追加
@@ -56,6 +89,7 @@ export class FirestoreService {
         createdAt: now,
         updatedAt: now
       });
+      this.trackUsage('write');
       console.log('🔥 Firestore: トークン追加成功', docRef.id);
       return docRef.id;
     } catch (error) {
@@ -131,57 +165,40 @@ export class FirestoreService {
 
   // === 有望アドレス管理 ===
 
-  // 有望アドレス一括追加（バッチ処理で制限回避）
+  // 有望アドレス一括追加（全データ確実保存）
   static async addPromisingAddresses(addresses: Omit<FirebasePromisingAddress, 'id' | 'createdAt' | 'updatedAt'>[]) {
     try {
       const now = Timestamp.now();
-      const BATCH_SIZE = 50; // Firebase無料プラン制限を考慮（より小さなバッチ）
-      const MAX_DAILY_WRITES = 10000; // 日次制限の半分を目安に
+      const BATCH_SIZE = 500; // Firestore Blazeプラン想定（高速処理）
       let totalAdded = 0;
       
-      // 制限チェック
-      if (addresses.length > MAX_DAILY_WRITES) {
-        console.warn(`⚠️ 警告: ${addresses.length}件は日次制限を超える可能性があります。最初の${MAX_DAILY_WRITES}件のみ処理します。`);
-        addresses = addresses.slice(0, MAX_DAILY_WRITES);
-      }
+      console.log(`🚀 ${addresses.length}件の有望アドレスを全て保存開始...`);
       
-      // バッチごとに処理
+      // バッチごとに処理（全データ保存）
       for (let i = 0; i < addresses.length; i += BATCH_SIZE) {
         const batch = addresses.slice(i, i + BATCH_SIZE);
         
-        try {
-          const promises = batch.map(address => 
-            addDoc(collection(db, 'promising-addresses'), {
-              ...address,
-              createdAt: now,
-              updatedAt: now
-            })
-          );
-          
-          await Promise.all(promises);
-          totalAdded += batch.length;
-          
-          console.log(`🔥 Firestore: バッチ ${Math.floor(i / BATCH_SIZE) + 1} 完了 (${batch.length}件), 合計: ${totalAdded}/${addresses.length}件`);
-          
-          // 次のバッチまで待機（制限回避）
-          if (i + BATCH_SIZE < addresses.length) {
-            await new Promise(resolve => setTimeout(resolve, 1000)); // 1秒待機
-          }
-        } catch (batchError: any) {
-          if (batchError?.code === 'resource-exhausted') {
-            console.error(`❌ Firebase日次制限に到達しました。${totalAdded}件を追加後、処理を停止します。`);
-            break;
-          }
-          throw batchError;
+        const promises = batch.map(address => 
+          addDoc(collection(db, 'promising-addresses'), {
+            ...address,
+            createdAt: now,
+            updatedAt: now
+          })
+        );
+        
+        await Promise.all(promises);
+        totalAdded += batch.length;
+        this.trackUsage('write', batch.length);
+        
+        console.log(`🔥 Firestore: バッチ ${Math.floor(i / BATCH_SIZE) + 1} 完了 (${batch.length}件), 合計: ${totalAdded}/${addresses.length}件`);
+        
+        // パフォーマンス維持のため短い待機
+        if (i + BATCH_SIZE < addresses.length) {
+          await new Promise(resolve => setTimeout(resolve, 100)); // 0.1秒待機
         }
       }
       
-      console.log('🔥 Firestore: 有望アドレス一括追加完了', totalAdded + '件');
-      
-      if (totalAdded < addresses.length) {
-        console.warn(`⚠️ ${addresses.length - totalAdded}件は制限により追加されませんでした。`);
-      }
-      
+      console.log('✅ Firestore: 有望アドレス一括追加完了', totalAdded + '件 - 全データ保存成功');
       return totalAdded;
     } catch (error) {
       console.error('❌ Firestore: 有望アドレス追加失敗', error);
